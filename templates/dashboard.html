@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="dashboard-page">
+        <header class="topbar">
+            <div>
+                <p class="eyebrow">Protected area</p>
+                <h1>Сотрудники</h1>
+            </div>
+            <a class="logout-link" href="{{ url_for('logout') }}">Выйти</a>
+        </header>
+
+        <section class="table-section" aria-label="Список сотрудников">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>ФИО</th>
+                        <th>Должность</th>
+                        <th>Отдел</th>
+                        <th>Email</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for employee in employees %}
+                        <tr>
+                            <td>{{ employee.id }}</td>
+                            <td>{{ employee.full_name }}</td>
+                            <td>{{ employee.position }}</td>
+                            <td>{{ employee.department }}</td>
+                            <td>{{ employee.email }}</td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="5" class="empty-state">Данных пока нет</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    </main>
+</body>
+</html>

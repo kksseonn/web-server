@@ -1,0 +1,19 @@
+Инициализация БД встроена в app.py:
+
+python app.py init-db
+
+Она создаст таблицы и добавит тестового пользователя:
+
+admin / admin123
+
+Пример запуска на Ubuntu Server:
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+export DATABASE_URL="postgresql://db_user:db_password@127.0.0.1:5432/db_name"
+export SECRET_KEY="replace-with-long-random-secret"
+
+python app.py init-db
+python app.py
