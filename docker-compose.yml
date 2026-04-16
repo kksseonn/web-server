@@ -1,0 +1,32 @@
+services:
+  web:
+    build: .
+    container_name: web-server-app
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://app_user:app_password@db:5432/app_db
+      SECRET_KEY: replace-this-secret
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: web-server-db
+    environment:
+      POSTGRES_DB: app_db
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d app_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
