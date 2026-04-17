@@ -17,3 +17,5 @@ export SECRET_KEY="replace-with-long-random-secret"
 
 python app.py init-db
 python app.py
+
+docker compose up --build
