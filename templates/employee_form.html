@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="dashboard-page">
+        <header class="topbar">
+            <div>
+                <p class="eyebrow">Admin tools</p>
+                <h1>{{ title }}</h1>
+            </div>
+            <a class="secondary-link" href="{{ url_for('dashboard') }}">Назад</a>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <section class="alerts" aria-label="Сообщения">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </section>
+            {% endif %}
+        {% endwith %}
+
+        <section class="form-card">
+            <form method="post" action="{{ form_action }}" class="employee-form">
+                <label for="full_name">ФИО</label>
+                <input id="full_name" name="full_name" type="text" value="{{ employee.full_name }}" required autofocus>
+
+                <label for="position">Должность</label>
+                <input id="position" name="position" type="text" value="{{ employee.position }}" required>
+
+                <label for="department">Отдел</label>
+                <input id="department" name="department" type="text" value="{{ employee.department }}" required>
+
+                <label for="email">Email</label>
+                <input id="email" name="email" type="email" value="{{ employee.email }}" required>
+
+                <button type="submit">{{ submit_label }}</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

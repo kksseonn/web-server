@@ -7,6 +7,8 @@
     --border: #dbe3ea;
     --primary: #256f8f;
     --primary-hover: #1f5f7b;
+    --success-bg: #e8f7ee;
+    --success-text: #1f7a46;
     --danger-bg: #fdecec;
     --danger-text: #9f2929;
 }
@@ -77,7 +79,10 @@ input:focus {
 }
 
 button,
-.logout-link {
+.logout-link,
+.secondary-link,
+.icon-button,
+.row-action {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -98,7 +103,10 @@ button {
 }
 
 button:hover,
-.logout-link:hover {
+.logout-link:hover,
+.secondary-link:hover,
+.icon-button:hover,
+.row-action:hover {
     background: var(--primary-hover);
 }
 
@@ -111,6 +119,11 @@ button:hover,
 .alert-error {
     background: var(--danger-bg);
     color: var(--danger-text);
+}
+
+.alert-success {
+    background: var(--success-bg);
+    color: var(--success-text);
 }
 
 .dashboard-page {
@@ -135,6 +148,34 @@ button:hover,
 
 .topbar h1 {
     margin: 0;
+}
+
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.alerts {
+    margin-bottom: 18px;
+}
+
+.icon-button {
+    width: 42px;
+    padding: 0;
+    font-size: 28px;
+    line-height: 1;
+}
+
+.secondary-link {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+.secondary-link:hover {
+    border-color: var(--primary);
+    color: #ffffff;
 }
 
 .table-section {
@@ -165,13 +206,58 @@ th {
     text-transform: uppercase;
 }
 
+.actions-column {
+    width: 120px;
+}
+
 tr:last-child td {
     border-bottom: 0;
+}
+
+.actions-cell {
+    white-space: nowrap;
+}
+
+.inline-form {
+    display: inline-block;
+    margin: 0;
+}
+
+.row-action {
+    min-height: 36px;
+    min-width: 36px;
+    margin-top: 0;
+    padding: 0;
+    font-size: 18px;
+}
+
+.edit-action {
+    text-decoration: none;
+}
+
+.delete-action {
+    background: #c45252;
+}
+
+.delete-action:hover {
+    background: #a73d3d;
 }
 
 .empty-state {
     color: var(--muted);
     text-align: center;
+}
+
+.form-card {
+    padding: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 18px 45px rgba(29, 37, 45, 0.06);
+}
+
+.employee-form {
+    width: min(100%, 560px);
 }
 
 @media (max-width: 640px) {
@@ -182,5 +268,14 @@ tr:last-child td {
     .topbar {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .topbar-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .actions-cell {
+        justify-content: flex-start;
     }
 }

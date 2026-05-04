@@ -63,6 +63,26 @@ def login_required(view):
     return wrapped_view
 
 
+def admin_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if session.get("username") != "admin":
+            flash("У вас нет прав для выполнения этого действия", "error")
+            return redirect(url_for("dashboard"))
+        return view(*args, **kwargs)
+
+    return wrapped_view
+
+
+def get_employee_form_data():
+    return {
+        "full_name": request.form.get("full_name", "").strip(),
+        "position": request.form.get("position", "").strip(),
+        "department": request.form.get("department", "").strip(),
+        "email": request.form.get("email", "").strip(),
+    }
+
+
 def register_routes(app):
     @app.route("/")
     def index():
@@ -92,7 +112,77 @@ def register_routes(app):
     @login_required
     def dashboard():
         employees = Employee.query.order_by(Employee.id.asc()).all()
-        return render_template("dashboard.html", employees=employees)
+        return render_template(
+            "dashboard.html",
+            employees=employees,
+            is_admin=session.get("username") == "admin",
+        )
+
+    @app.route("/employees/new", methods=["GET", "POST"])
+    @login_required
+    @admin_required
+    def new_employee():
+        form_data = {
+            "full_name": "",
+            "position": "",
+            "department": "",
+            "email": "",
+        }
+
+        if request.method == "POST":
+            form_data = get_employee_form_data()
+            if not all(form_data.values()):
+                flash("Заполните все поля сотрудника", "error")
+            else:
+                db.session.add(Employee(**form_data))
+                db.session.commit()
+                flash("Сотрудник добавлен", "success")
+                return redirect(url_for("dashboard"))
+
+        return render_template(
+            "employee_form.html",
+            title="Новый сотрудник",
+            submit_label="Добавить запись",
+            form_action=url_for("new_employee"),
+            employee=form_data,
+        )
+
+    @app.route("/employees/<int:employee_id>/edit", methods=["GET", "POST"])
+    @login_required
+    @admin_required
+    def edit_employee(employee_id):
+        employee = Employee.query.get_or_404(employee_id)
+
+        if request.method == "POST":
+            form_data = get_employee_form_data()
+            if not all(form_data.values()):
+                flash("Заполните все поля сотрудника", "error")
+            else:
+                employee.full_name = form_data["full_name"]
+                employee.position = form_data["position"]
+                employee.department = form_data["department"]
+                employee.email = form_data["email"]
+                db.session.commit()
+                flash("Запись обновлена", "success")
+                return redirect(url_for("dashboard"))
+
+        return render_template(
+            "employee_form.html",
+            title="Редактирование сотрудника",
+            submit_label="Сохранить изменения",
+            form_action=url_for("edit_employee", employee_id=employee.id),
+            employee=employee,
+        )
+
+    @app.route("/employees/<int:employee_id>/delete", methods=["POST"])
+    @login_required
+    @admin_required
+    def delete_employee(employee_id):
+        employee = Employee.query.get_or_404(employee_id)
+        db.session.delete(employee)
+        db.session.commit()
+        flash("Запись удалена", "success")
+        return redirect(url_for("dashboard"))
 
     @app.route("/logout")
     def logout():
@@ -109,6 +199,13 @@ def init_db():
             password_hash=generate_password_hash("admin123"),
         )
         db.session.add(admin)
+
+    if not User.query.filter_by(username="user").first():
+        user = User(
+            username="user",
+            password_hash=generate_password_hash("user123"),
+        )
+        db.session.add(user)
 
     if Employee.query.count() == 0:
         db.session.add_all(
@@ -148,6 +245,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "init-db":
         with app.app_context():
             init_db()
-        print("Database initialized. Test user: admin / admin123")
+        print("Database initialized. Test users: admin / admin123, user / user123")
     else:
         app.run(host="127.0.0.1", port=5000)

@@ -1,19 +1,66 @@
-Инициализация БД встроена в app.py:
+# Web Server
 
-python app.py init-db
+Приложение запускается через Docker Compose: веб-приложение Flask и PostgreSQL поднимаются вместе.
 
-Она создаст таблицы и добавит тестового пользователя:
+## Что нужно
 
-admin / admin123
+- Docker
+- Docker Compose
 
-Пример запуска на Ubuntu Server:
+## Быстрый старт
 
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+Сборка и запуск:
 
-export DATABASE_URL="postgresql://db_user:db_password@127.0.0.1:5432/db_name"
-export SECRET_KEY="replace-with-long-random-secret"
+```bash
+docker compose up --build -d
+```
 
-python app.py init-db
-python app.py
+Проверить контейнеры:
+
+```bash
+docker compose ps
+```
+
+## Тестовые пользователи
+
+- `admin / admin123` — администратор, может добавлять, редактировать и удалять записи сотрудников.
+- `user / user123` — обычный пользователь, имеет доступ только на чтение таблицы.
+
+## Полезные команды
+
+Посмотреть логи:
+
+```bash
+docker compose logs -f
+```
+
+Посмотреть логи только приложения:
+
+```bash
+docker compose logs -f web
+```
+
+Остановить контейнеры:
+
+```bash
+docker compose down
+```
+
+Остановить контейнеры и удалить volume базы данных:
+
+```bash
+docker compose down -v
+```
+
+Повторно пересобрать и запустить после изменений:
+
+```bash
+docker compose up --build -d
+```
+
+## Переменные окружения
+
+Сейчас они заданы прямо в `docker-compose.yml`:
+
+- `DATABASE_URL=postgresql://app_user:app_password@db:5432/app_db`
+- `SECRET_KEY=replace-this-secret`

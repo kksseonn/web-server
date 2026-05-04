@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dashboard</title>
+    <title>Сотрудники</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -13,8 +13,23 @@
                 <p class="eyebrow">Protected area</p>
                 <h1>Сотрудники</h1>
             </div>
-            <a class="logout-link" href="{{ url_for('logout') }}">Выйти</a>
+            <div class="topbar-actions">
+                {% if is_admin %}
+                    <a class="icon-button" href="{{ url_for('new_employee') }}" aria-label="Добавить сотрудника" title="Добавить сотрудника">+</a>
+                {% endif %}
+                <a class="logout-link" href="{{ url_for('logout') }}">Выйти</a>
+            </div>
         </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <section class="alerts" aria-label="Сообщения">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </section>
+            {% endif %}
+        {% endwith %}
 
         <section class="table-section" aria-label="Список сотрудников">
             <table>
@@ -25,6 +40,9 @@
                         <th>Должность</th>
                         <th>Отдел</th>
                         <th>Email</th>
+                        {% if is_admin %}
+                            <th class="actions-column">Действия</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -35,10 +53,26 @@
                             <td>{{ employee.position }}</td>
                             <td>{{ employee.department }}</td>
                             <td>{{ employee.email }}</td>
+                            {% if is_admin %}
+                                <td class="actions-cell">
+                                    <a class="row-action edit-action" href="{{ url_for('edit_employee', employee_id=employee.id) }}" aria-label="Редактировать {{ employee.full_name }}" title="Редактировать">&#9998;</a>
+                                    <form method="post" action="{{ url_for('delete_employee', employee_id=employee.id) }}" class="inline-form">
+                                        <button
+                                            class="row-action delete-action"
+                                            type="submit"
+                                            aria-label="Удалить {{ employee.full_name }}"
+                                            title="Удалить"
+                                            onclick="return confirm('Удалить запись о сотруднике?');"
+                                        >
+                                            &#128465;
+                                        </button>
+                                    </form>
+                                </td>
+                            {% endif %}
                         </tr>
                     {% else %}
                         <tr>
-                            <td colspan="5" class="empty-state">Данных пока нет</td>
+                            <td colspan="{{ 6 if is_admin else 5 }}" class="empty-state">Данных пока нет</td>
                         </tr>
                     {% endfor %}
                 </tbody>
