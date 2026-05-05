@@ -7,6 +7,11 @@ services:
     environment:
       DATABASE_URL: postgresql://app_user:app_password@db:5432/app_db
       SECRET_KEY: replace-this-secret
+      AD_SERVER: 10.50.10.1
+      AD_DOMAIN: CORP
+      AD_BASE_DN: DC=corp,DC=local
+      AD_ADMIN_GROUP: IT_Admins
+      AD_USER_GROUP: Employees
     depends_on:
       db:
         condition: service_healthy

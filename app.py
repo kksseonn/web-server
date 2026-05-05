@@ -4,19 +4,13 @@ from functools import wraps
 
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
+from ldap3 import Connection, Server
+from ldap3.core.exceptions import LDAPException
+from ldap3.utils.conv import escape_filter_chars
 from sqlalchemy.exc import IntegrityError
-from werkzeug.security import check_password_hash, generate_password_hash
 
 
 db = SQLAlchemy()
-
-
-class User(db.Model):
-    __tablename__ = "users"
-
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
 
 
 class Employee(db.Model):
@@ -56,7 +50,7 @@ def get_database_url():
 def login_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if "user_id" not in session:
+        if "username" not in session:
             return redirect(url_for("login"))
         return view(*args, **kwargs)
 
@@ -66,12 +60,94 @@ def login_required(view):
 def admin_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if session.get("username") != "admin":
+        if session.get("role") != "admin":
             flash("У вас нет прав для выполнения этого действия", "error")
             return redirect(url_for("dashboard"))
         return view(*args, **kwargs)
 
     return wrapped_view
+
+
+def normalize_username(username):
+    normalized_username = username.strip()
+
+    if "\\" in normalized_username:
+        normalized_username = normalized_username.split("\\", 1)[1]
+
+    if "@" in normalized_username:
+        normalized_username = normalized_username.split("@", 1)[0]
+
+    return normalized_username
+
+
+def get_ad_upn_suffix():
+    domain_parts = []
+    for component in os.getenv("AD_BASE_DN", "").split(","):
+        key, _, value = component.strip().partition("=")
+        if key.upper() == "DC" and value:
+            domain_parts.append(value)
+
+    return ".".join(domain_parts)
+
+
+def resolve_role(group_dns):
+    admin_group = os.getenv("AD_ADMIN_GROUP", "IT_Admins").lower()
+    user_group = os.getenv("AD_USER_GROUP", "Employees").lower()
+
+    normalized_groups = [group_dn.lower() for group_dn in group_dns]
+
+    if any(group_dn.startswith(f"cn={admin_group},") for group_dn in normalized_groups):
+        return "admin"
+
+    if any(group_dn.startswith(f"cn={user_group},") for group_dn in normalized_groups):
+        return "user"
+
+    return None
+
+
+def authenticate_ad(username, password):
+    normalized_username = normalize_username(username)
+    if not normalized_username or not password:
+        return None
+
+    ad_server = os.getenv("AD_SERVER", "").strip()
+    ad_domain = os.getenv("AD_DOMAIN", "").strip()
+    ad_base_dn = os.getenv("AD_BASE_DN", "").strip()
+    upn_suffix = get_ad_upn_suffix()
+    if not ad_server or not ad_domain or not ad_base_dn or not upn_suffix:
+        return None
+
+    # Bind via UPN so the form can accept a plain login like "ivanov".
+    bind_username = f"{normalized_username}@{upn_suffix}"
+    server = Server(ad_server, connect_timeout=5)
+
+    try:
+        with Connection(
+            server,
+            user=bind_username,
+            password=password,
+            auto_bind=True,
+            receive_timeout=5,
+        ) as connection:
+            search_filter = f"(sAMAccountName={escape_filter_chars(normalized_username)})"
+            found_user = connection.search(
+                search_base=ad_base_dn,
+                search_filter=search_filter,
+                attributes=["memberOf"],
+            )
+            if not found_user or len(connection.entries) != 1:
+                return None
+
+            entry = connection.entries[0]
+            group_dns = entry.entry_attributes_as_dict.get("memberOf", [])
+    except (LDAPException, OSError):
+        return None
+
+    role = resolve_role(group_dns)
+    if not role:
+        return None
+
+    return {"username": normalized_username, "role": role}
 
 
 def get_employee_form_data():
@@ -90,21 +166,21 @@ def register_routes(app):
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
-        if "user_id" in session:
+        if "username" in session:
             return redirect(url_for("dashboard"))
 
         if request.method == "POST":
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
 
-            user = User.query.filter_by(username=username).first()
-            if user and check_password_hash(user.password_hash, password):
+            auth_result = authenticate_ad(username, password)
+            if auth_result:
                 session.clear()
-                session["user_id"] = user.id
-                session["username"] = user.username
+                session["username"] = auth_result["username"]
+                session["role"] = auth_result["role"]
                 return redirect(url_for("dashboard"))
 
-            flash("Неверный логин или пароль", "error")
+            flash("Неверный логин, пароль или нет прав доступа", "error")
 
         return render_template("login.html")
 
@@ -112,10 +188,14 @@ def register_routes(app):
     @login_required
     def dashboard():
         employees = Employee.query.order_by(Employee.id.asc()).all()
+        role = session.get("role")
         return render_template(
             "dashboard.html",
             employees=employees,
-            is_admin=session.get("username") == "admin",
+            username=session.get("username"),
+            role=role,
+            role_label="Администратор" if role == "admin" else "Пользователь",
+            is_admin=role == "admin",
         )
 
     @app.route("/employees/new", methods=["GET", "POST"])
@@ -193,20 +273,6 @@ def register_routes(app):
 def init_db():
     db.create_all()
 
-    if not User.query.filter_by(username="admin").first():
-        admin = User(
-            username="admin",
-            password_hash=generate_password_hash("admin123"),
-        )
-        db.session.add(admin)
-
-    if not User.query.filter_by(username="user").first():
-        user = User(
-            username="user",
-            password_hash=generate_password_hash("user123"),
-        )
-        db.session.add(user)
-
     if Employee.query.count() == 0:
         db.session.add_all(
             [
@@ -245,6 +311,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "init-db":
         with app.app_context():
             init_db()
-        print("Database initialized. Test users: admin / admin123, user / user123")
+        print("Database initialized. Employees table is ready.")
     else:
         app.run(host="127.0.0.1", port=5000)

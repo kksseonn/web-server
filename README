@@ -2,6 +2,8 @@
 
 Приложение запускается через Docker Compose: веб-приложение Flask и PostgreSQL поднимаются вместе.
 
+Теперь вход выполняется через Active Directory по LDAP, а PostgreSQL используется только для хранения таблицы сотрудников.
+
 ## Что нужно
 
 - Docker
@@ -21,10 +23,25 @@ docker compose up --build -d
 docker compose ps
 ```
 
-## Тестовые пользователи
+## Аутентификация
 
-- `admin / admin123` — администратор, может добавлять, редактировать и удалять записи сотрудников.
-- `user / user123` — обычный пользователь, имеет доступ только на чтение таблицы.
+- Пользователи создаются в Active Directory.
+- Для входа на сайт используется доменный логин и пароль, например `ivanov`.
+- Flask проверяет учетные данные через LDAP bind к AD.
+- Пароли пользователей не хранятся в базе приложения.
+- PostgreSQL используется только для данных сотрудников.
+
+## Роли
+
+Роль пользователя определяется по группам Active Directory:
+
+- `IT_Admins` → `admin`
+- `Employees` → `user`
+
+Права в приложении:
+
+- `admin` может просматривать, добавлять, редактировать и удалять записи сотрудников.
+- `user` может только просматривать таблицу сотрудников.
 
 ## Полезные команды
 
@@ -64,3 +81,8 @@ docker compose up --build -d
 
 - `DATABASE_URL=postgresql://app_user:app_password@db:5432/app_db`
 - `SECRET_KEY=replace-this-secret`
+- `AD_SERVER=10.50.10.1`
+- `AD_DOMAIN=CORP`
+- `AD_BASE_DN=DC=corp,DC=local`
+- `AD_ADMIN_GROUP=IT_Admins`
+- `AD_USER_GROUP=Employees`
