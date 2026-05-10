@@ -1,4 +1,6 @@
 import os
+import logging
+import re
 import sys
 from functools import wraps
 
@@ -11,6 +13,11 @@ from sqlalchemy.exc import IntegrityError
 
 
 db = SQLAlchemy()
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 class Employee(db.Model):
@@ -90,35 +97,104 @@ def get_ad_upn_suffix():
     return ".".join(domain_parts)
 
 
+def normalize_group_value(value):
+    return str(value).strip().strip('"').lower()
+
+
+def extract_cn_values(group_dn):
+    return [
+        normalize_group_value(match)
+        for match in re.findall(r"(?:^|,)\s*cn\s*=\s*([^,]+)", str(group_dn), re.IGNORECASE)
+    ]
+
+
 def resolve_role(group_dns):
-    admin_group = os.getenv("AD_ADMIN_GROUP", "IT_Admins").lower()
-    user_group = os.getenv("AD_USER_GROUP", "Employees").lower()
+    admin_group = normalize_group_value(os.getenv("AD_ADMIN_GROUP", "IT_Admins"))
+    user_group = normalize_group_value(os.getenv("AD_USER_GROUP", "Employees"))
+    admin_targets = {admin_group, *extract_cn_values(admin_group)}
+    user_targets = {user_group, *extract_cn_values(user_group)}
+    matched_user_group = None
 
-    normalized_groups = [group_dn.lower() for group_dn in group_dns]
+    logger.info(
+        "Resolving LDAP role: admin_group=%r user_group=%r admin_targets=%r user_targets=%r group_dns=%r",
+        admin_group,
+        user_group,
+        admin_targets,
+        user_targets,
+        group_dns,
+    )
 
-    if any(group_dn.startswith(f"cn={admin_group},") for group_dn in normalized_groups):
-        return "admin"
+    for group_dn in group_dns:
+        normalized_dn = normalize_group_value(group_dn)
+        cn_values = extract_cn_values(group_dn)
+        comparable_values = {normalized_dn, *cn_values}
 
-    if any(group_dn.startswith(f"cn={user_group},") for group_dn in normalized_groups):
+        logger.info(
+            "Role check group_dn=%r normalized_dn=%r cn_values=%r",
+            group_dn,
+            normalized_dn,
+            cn_values,
+        )
+
+        if admin_targets.intersection(comparable_values):
+            logger.info("Resolved role=admin by group_dn=%r", group_dn)
+            return "admin"
+
+        if user_targets.intersection(comparable_values):
+            matched_user_group = group_dn
+
+    if matched_user_group:
+        logger.info("Resolved role=user by group_dn=%r", matched_user_group)
         return "user"
 
+    logger.info("Role was not resolved from group_dns=%r", group_dns)
     return None
 
 
 def authenticate_ad(username, password):
+    logger.info("LDAP login attempt: raw_username=%r", username)
+
     normalized_username = normalize_username(username)
     if not normalized_username or not password:
+        logger.warning(
+            "LOGIN FAILED: MISSING CREDENTIALS raw_username=%r normalized_username=%r has_password=%s",
+            username,
+            normalized_username,
+            bool(password),
+        )
         return None
 
     ad_server = os.getenv("AD_SERVER", "").strip()
     ad_domain = os.getenv("AD_DOMAIN", "").strip()
     ad_base_dn = os.getenv("AD_BASE_DN", "").strip()
     upn_suffix = get_ad_upn_suffix()
+    logger.info(
+        "LDAP config: ad_server=%r ad_domain=%r ad_base_dn=%r upn_suffix=%r",
+        ad_server,
+        ad_domain,
+        ad_base_dn,
+        upn_suffix,
+    )
     if not ad_server or not ad_domain or not ad_base_dn or not upn_suffix:
+        logger.error(
+            "LOGIN FAILED: CONFIG ERROR ad_server_present=%s ad_domain_present=%s "
+            "ad_base_dn_present=%s upn_suffix_present=%s",
+            bool(ad_server),
+            bool(ad_domain),
+            bool(ad_base_dn),
+            bool(upn_suffix),
+        )
         return None
 
     # Bind via UPN so the form can accept a plain login like "ivanov".
     bind_username = f"{normalized_username}@{upn_suffix}"
+    logger.info(
+        "LDAP bind prepared: raw_username=%r normalized_username=%r bind_upn=%r ldap_server=%r",
+        username,
+        normalized_username,
+        bind_username,
+        ad_server,
+    )
     server = Server(ad_server, connect_timeout=5)
 
     try:
@@ -126,27 +202,125 @@ def authenticate_ad(username, password):
             server,
             user=bind_username,
             password=password,
-            auto_bind=True,
+            auto_bind=False,
             receive_timeout=5,
         ) as connection:
+            bind_ok = connection.bind()
+            logger.info(
+                "LDAP bind result: normalized_username=%r bind_upn=%r ldap_server=%r bind_ok=%s result=%r",
+                normalized_username,
+                bind_username,
+                ad_server,
+                bind_ok,
+                connection.result,
+            )
+            if not bind_ok:
+                logger.warning(
+                    "LOGIN FAILED: BIND FAILED normalized_username=%r bind_upn=%r ldap_server=%r result=%r",
+                    normalized_username,
+                    bind_username,
+                    ad_server,
+                    connection.result,
+                )
+                return None
+
+            logger.info(
+                "LDAP bind successful: normalized_username=%r bind_upn=%r ldap_server=%r bound=%s",
+                normalized_username,
+                bind_username,
+                ad_server,
+                connection.bound,
+            )
             search_filter = f"(sAMAccountName={escape_filter_chars(normalized_username)})"
+            logger.info(
+                "LDAP search prepared: search_base=%r search_filter=%r attributes=%r",
+                ad_base_dn,
+                search_filter,
+                ["memberOf"],
+            )
             found_user = connection.search(
                 search_base=ad_base_dn,
                 search_filter=search_filter,
                 attributes=["memberOf"],
             )
+            entries = list(connection.entries)
+            logger.info(
+                "LDAP search result: found_user=%s entries_count=%s entries=%r",
+                found_user,
+                len(entries),
+                entries,
+            )
             if not found_user or len(connection.entries) != 1:
+                logger.warning(
+                    "LOGIN FAILED: USER NOT FOUND normalized_username=%r search_filter=%r entries_count=%s",
+                    normalized_username,
+                    search_filter,
+                    len(entries),
+                )
                 return None
 
-            entry = connection.entries[0]
+            entry = entries[0]
             group_dns = entry.entry_attributes_as_dict.get("memberOf", [])
-    except (LDAPException, OSError):
+            logger.info(
+                "LDAP user entry: normalized_username=%r entry=%r memberOf=%r memberOf_count=%s",
+                normalized_username,
+                entry,
+                group_dns,
+                len(group_dns),
+            )
+            if not group_dns:
+                logger.warning(
+                    "LOGIN FAILED: NO GROUPS normalized_username=%r entry=%r",
+                    normalized_username,
+                    entry,
+                )
+                return None
+    except LDAPException:
+        logger.exception(
+            "LOGIN FAILED: LDAP ERROR normalized_username=%r bind_upn=%r ldap_server=%r",
+            normalized_username,
+            bind_username,
+            ad_server,
+        )
+        return None
+    except OSError:
+        logger.exception(
+            "LOGIN FAILED: LDAP NETWORK ERROR normalized_username=%r bind_upn=%r ldap_server=%r",
+            normalized_username,
+            bind_username,
+            ad_server,
+        )
+        return None
+    except Exception:
+        logger.exception(
+            "LOGIN FAILED: UNEXPECTED LDAP AUTH ERROR normalized_username=%r bind_upn=%r ldap_server=%r",
+            normalized_username,
+            bind_username,
+            ad_server,
+        )
         return None
 
     role = resolve_role(group_dns)
+    logger.info(
+        "LDAP resolved role: normalized_username=%r memberOf=%r role=%r",
+        normalized_username,
+        group_dns,
+        role,
+    )
     if not role:
+        logger.warning(
+            "LOGIN FAILED: ROLE NOT RESOLVED normalized_username=%r memberOf=%r",
+            normalized_username,
+            group_dns,
+        )
         return None
 
+    logger.info(
+        "LOGIN SUCCESS normalized_username=%r role=%r ldap_server=%r",
+        normalized_username,
+        role,
+        ad_server,
+    )
     return {"username": normalized_username, "role": role}
 
 
